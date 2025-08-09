@@ -7,7 +7,11 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-const mongoUri = process.env.MONGODB_URI;
+let mongoUri = process.env.MONGODB_URI;
+if (mongoUri && !/\bssl=true\b/i.test(mongoUri)) {
+  // Ensure TLS is enabled for Atlas on hosts where TLS is required
+  mongoUri += mongoUri.includes('?') ? '&ssl=true' : '?ssl=true';
+}
 const dbName = process.env.MONGODB_DB_NAME || 'nclex';
 const collectionName = process.env.MONGODB_COLLECTION || 'questions';
 
