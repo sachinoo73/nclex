@@ -1,6 +1,6 @@
 require('dotenv').config();
 const express = require('express');
-const { MongoClient, ObjectId } = require('mongodb');
+const { MongoClient, ObjectId, ServerApiVersion } = require('mongodb');
 const cors = require('cors');
 
 const app = express();
@@ -22,9 +22,17 @@ if (!mongoUri) {
 
 let client;
 let collection;
+let isConnecting = false;
 
 async function init() {
-  client = new MongoClient(mongoUri);
+  const clientOptions = {
+    serverApi: { version: ServerApiVersion.v1 },
+  };
+  // Force TLS when connecting to standard mongodb.net hosts if needed
+  if (/mongodb\.net/i.test(mongoUri) && !/mongodb\+srv/i.test(mongoUri)) {
+    clientOptions.tls = true;
+  }
+  client = new MongoClient(mongoUri, clientOptions);
   await client.connect();
   const db = client.db(dbName);
   collection = db.collection(collectionName);
@@ -81,13 +89,28 @@ app.get('/questions/random', async (req, res) => {
 });
 
 const port = process.env.PORT || 4000;
-init()
-  .then(() => {
-    app.listen(port, () => console.log(`API listening on http://localhost:${port}`));
-  })
-  .catch((err) => {
-    console.error('Failed to initialize server', err);
-    process.exit(1);
-  });
+// Start server immediately; connect to DB in the background with retry
+app.listen(port, () => console.log(`API listening on port ${port}`));
+
+async function ensureConnectedWithRetry() {
+  if (collection || isConnecting) return;
+  isConnecting = true;
+  let attempt = 0;
+  for (;;) {
+    attempt += 1;
+    try {
+      await init();
+      isConnecting = false;
+      return;
+    } catch (err) {
+      console.error(`Mongo connect attempt ${attempt} failed`, err.message || err);
+      // Backoff up to 60s
+      const delayMs = Math.min(60000, 2000 * attempt);
+      await new Promise((res) => setTimeout(res, delayMs));
+    }
+  }
+}
+
+ensureConnectedWithRetry().catch(() => {});
 
 
